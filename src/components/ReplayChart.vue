@@ -57,15 +57,15 @@ const setStyles = () => {
     },
     candle: {
       bar: {
-        upColor: '#26a69a',
-        downColor: '#ef5350',
+        upColor: '#089981',
+        downColor: '#f23645',
         noChangeColor: '#888888'
       },
       priceMark: {
         last: {
           show: true,
-          upColor: '#26a69a',
-          downColor: '#ef5350',
+          upColor: '#089981',
+          downColor: '#f23645',
           noChangeColor: '#888888',
           line: { show: true, style: 'dashed' }
         }
@@ -80,15 +80,15 @@ const setStyles = () => {
           const { prev, current } = data;
           const change = prev ? ((current.close - prev.close) / prev.close * 100).toFixed(2) : '0.00';
           const amplitude = ((current.high - current.low) / current.low * 100).toFixed(2);
-          const color = current.close >= current.open ? '#26a69a' : '#ef5350';
+          const color = current.close >= current.open ? '#089981' : '#f23645';
           
           return [
             { title: '时间', value: new Date(current.timestamp).toLocaleString() },
-            { title: '开', value: current.open.toFixed(2) },
-            { title: '高', value: current.high.toFixed(2) },
-            { title: '低', value: current.low.toFixed(2) },
-            { title: '收', value: current.close.toFixed(2) },
-            { title: '涨幅', value: `${change}%`, color },
+            { title: '开盘', value: current.open.toFixed(2) },
+            { title: '最高', value: current.high.toFixed(2) },
+            { title: '最低', value: current.low.toFixed(2) },
+            { title: '收盘', value: current.close.toFixed(2) },
+            { title: '涨跌', value: `${change}%`, color },
             { title: '波幅', value: `${amplitude}%` }
           ];
         }

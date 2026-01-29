@@ -6,7 +6,8 @@ const props = defineProps({
   currentPrice: Number,
   balance: Number,
   history: Array,
-  symbol: String
+  symbol: String,
+  currentTime: Number
 });
 
 const emit = defineEmits(['update:balance', 'update:history']);
@@ -39,7 +40,7 @@ function openPosition(type) {
     entryPrice: props.currentPrice,
     leverage: leverage.value,
     amount: amount.value,
-    timestamp: Date.now(),
+    timestamp: props.currentTime,
     symbol: props.symbol
   };
   
@@ -55,7 +56,7 @@ function closePosition() {
   const record = {
     ...currentPosition.value,
     exitPrice: props.currentPrice,
-    exitTimestamp: Date.now(),
+    exitTimestamp: props.currentTime,
     pnl: finalPnl,
     roi: (finalPnl / currentPosition.value.amount) * 100
   };
@@ -70,56 +71,72 @@ function closePosition() {
 <template>
   <div class="order-panel">
     <div class="panel-header">
-      <Wallet size="16" />
-      <span>开仓系统</span>
+      <div class="header-title">
+        <Wallet size="14" class="icon-wallet" />
+        <span>交易终端</span>
+      </div>
+      <div class="symbol-badge">{{ symbol }}</div>
     </div>
     
     <div class="panel-body">
-      <div class="input-group">
-        <label>杠杆 (1-10x)</label>
-        <div class="leverage-selector">
-          <button 
-            v-for="opt in leverageOptions" 
-            :key="opt"
-            :class="{ active: leverage === opt }"
-            @click="leverage = opt"
-          >{{ opt }}x</button>
+      <div class="input-section">
+        <div class="input-row">
+          <label>杠杆倍数</label>
+          <div class="leverage-grid">
+            <button 
+              v-for="opt in leverageOptions" 
+              :key="opt"
+              :class="{ active: leverage === opt }"
+              @click="leverage = opt"
+            >{{ opt }}x</button>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <label>下单金额 (USDT)</label>
+          <div class="amount-input-wrapper">
+            <input v-model.number="amount" type="number" step="10" min="10" class="amount-input">
+            <div class="input-suffix">USDT</div>
+          </div>
         </div>
       </div>
 
-      <div class="input-group">
-        <label>投入金额 (USDT)</label>
-        <input v-model.number="amount" type="number" step="10" min="10" class="amount-input">
-      </div>
-
       <div v-if="!currentPosition" class="action-buttons">
-        <button class="btn-long" @click="openPosition('long')" :disabled="balance < amount">
-          <TrendingUp size="16" /> 开多
+        <button class="btn-trade btn-long" @click="openPosition('long')" :disabled="balance < amount">
+          <TrendingUp size="16" /> <span>买入 / 做多</span>
         </button>
-        <button class="btn-short" @click="openPosition('short')" :disabled="balance < amount">
-          <TrendingDown size="16" /> 开空
+        <button class="btn-trade btn-short" @click="openPosition('short')" :disabled="balance < amount">
+          <TrendingDown size="16" /> <span>卖出 / 做空</span>
         </button>
       </div>
 
       <div v-else class="position-info">
-        <div class="pos-header" :class="currentPosition.type">
-          {{ currentPosition.type === 'long' ? '多单' : '空单' }} {{ currentPosition.leverage }}x
+        <div class="pos-status" :class="currentPosition.type">
+          <div class="pos-type">
+            {{ currentPosition.type === 'long' ? '多单持仓' : '空单持仓' }} 
+            <span class="lev-text">{{ currentPosition.leverage }}x</span>
+          </div>
+          <div class="pos-pnl-pct" :class="{ plus: pnl >= 0, minus: pnl < 0 }">
+            {{ pnl >= 0 ? '+' : '' }}{{ ((pnl / currentPosition.amount) * 100).toFixed(2) }}%
+          </div>
         </div>
         <div class="pos-details">
-          <div class="detail-row">
-            <span>开仓价:</span>
-            <span>{{ currentPosition.entryPrice.toFixed(2) }}</span>
+          <div class="detail-item">
+            <span class="label">开仓价格</span>
+            <span class="value">{{ currentPosition.entryPrice.toFixed(2) }}</span>
           </div>
-          <div class="detail-row">
-            <span>当前价:</span>
-            <span>{{ currentPrice.toFixed(2) }}</span>
+          <div class="detail-item">
+            <span class="label">当前价格</span>
+            <span class="value highlight">{{ currentPrice.toFixed(2) }}</span>
           </div>
-          <div class="detail-row pnl-row" :class="{ plus: pnl >= 0, minus: pnl < 0 }">
-            <span>未实现盈亏:</span>
-            <span>{{ pnl >= 0 ? '+' : '' }}{{ pnl.toFixed(2) }} USDT</span>
+          <div class="detail-item pnl-main">
+            <span class="label">未实现盈亏</span>
+            <span class="value" :class="{ plus: pnl >= 0, minus: pnl < 0 }">
+              {{ pnl >= 0 ? '+' : '' }}{{ pnl.toFixed(2) }} <small>USDT</small>
+            </span>
           </div>
         </div>
-        <button class="btn-close" @click="closePosition">平仓</button>
+        <button class="btn-close" @click="closePosition">立即平仓</button>
       </div>
     </div>
   </div>
@@ -127,126 +144,202 @@ function closePosition() {
 
 <style scoped>
 .order-panel {
-  padding: 15px;
-  border-bottom: 1px solid #2a2e39;
+  display: flex;
+  flex-direction: column;
+  background-color: #1e222d;
 }
 
 .panel-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #2a2e39;
+}
+
+.header-title {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: bold;
-  margin-bottom: 15px;
-  color: #2962ff;
-}
-
-.input-group {
-  margin-bottom: 15px;
-}
-
-.input-group label {
-  display: block;
-  font-size: 0.8rem;
+  font-size: 11px;
+  font-weight: 700;
   color: #8a8d97;
-  margin-bottom: 5px;
+  letter-spacing: 0.5px;
 }
 
-.leverage-selector {
+.icon-wallet { color: #2962ff; }
+
+.symbol-badge {
+  background: rgba(41, 98, 255, 0.1);
+  color: #2962ff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.panel-body {
+  padding: 16px;
+}
+
+.input-section {
   display: flex;
-  gap: 5px;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
-.leverage-selector button {
-  flex: 1;
-  padding: 4px;
-  font-size: 0.8rem;
+.input-row label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a8d97;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.leverage-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.leverage-grid button {
+  padding: 6px 0;
+  font-size: 11px;
   background: #2a2e39;
   border: 1px solid #363a45;
   color: #d1d4dc;
   border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.leverage-selector button.active {
+.leverage-grid button:hover { border-color: #4a4e5a; }
+.leverage-grid button.active {
   background: #2962ff;
   border-color: #2962ff;
-  color: white;
+  color: #fff;
+  font-weight: 600;
+}
+
+.amount-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .amount-input {
   width: 100%;
   background: #2a2e39;
   border: 1px solid #363a45;
-  color: white;
-  padding: 8px;
+  color: #fff;
+  padding: 10px 12px;
   border-radius: 4px;
+  font-size: 13px;
+  outline: none;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.amount-input:focus { border-color: #2962ff; }
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  font-size: 10px;
+  color: #8a8d97;
+  font-weight: 600;
 }
 
 .action-buttons {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.action-buttons button {
-  flex: 1;
-  padding: 10px;
-  border-radius: 4px;
+.btn-trade {
+  height: 42px;
+  border-radius: 6px;
   border: none;
-  font-weight: bold;
+  font-weight: 700;
   cursor: pointer;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  color: white;
+  gap: 2px;
+  color: #fff;
+  transition: opacity 0.2s;
 }
 
-.btn-long { background-color: #26a69a; }
-.btn-short { background-color: #ef5350; }
-.btn-long:disabled, .btn-short:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-trade span { font-size: 10px; }
+.btn-trade:hover { opacity: 0.9; }
+.btn-trade:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn-long { background-color: #089981; }
+.btn-short { background-color: #f23645; }
 
 .position-info {
-  background: #2a2e39;
-  border-radius: 4px;
+  background: #131722;
+  border-radius: 8px;
   overflow: hidden;
+  border: 1px solid #2a2e39;
 }
 
-.pos-header {
-  padding: 8px;
-  text-align: center;
-  font-weight: bold;
-}
-
-.pos-header.long { background: rgba(38, 166, 154, 0.2); color: #26a69a; }
-.pos-header.short { background: rgba(239, 83, 80, 0.2); color: #ef5350; }
-
-.pos-details {
-  padding: 10px;
-}
-
-.detail-row {
+.pos-status {
+  padding: 10px 16px;
   display: flex;
   justify-content: space-between;
-  font-size: 0.9rem;
-  margin-bottom: 5px;
+  align-items: center;
+  font-weight: 700;
+  font-size: 12px;
 }
 
-.pnl-row {
-  margin-top: 10px;
-  font-weight: bold;
+.pos-status.long { background: rgba(8, 153, 129, 0.1); color: #089981; }
+.pos-status.short { background: rgba(242, 54, 69, 0.1); color: #f23645; }
+
+.lev-text { opacity: 0.7; margin-left: 4px; font-weight: normal; }
+
+.pos-details {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.plus { color: #26a69a; }
-.minus { color: #ef5350; }
+.detail-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.detail-item .label { color: #8a8d97; }
+.detail-item .value { color: #d1d4dc; font-family: 'JetBrains Mono', monospace; }
+.detail-item .value.highlight { color: #fff; font-weight: 600; }
+
+.pnl-main {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed #2a2e39;
+}
+
+.pnl-main .value { font-size: 14px; font-weight: 700; }
+.pnl-main .value small { font-size: 10px; opacity: 0.7; }
+
+.value.plus { color: #089981; }
+.value.minus { color: #f23645; }
 
 .btn-close {
   width: 100%;
-  padding: 10px;
-  background: #363a45;
+  padding: 12px;
+  background: #2a2e39;
   border: none;
-  color: white;
-  font-weight: bold;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
   cursor: pointer;
+  letter-spacing: 1px;
 }
 
-.btn-close:hover { background: #454955; }
+.btn-close:hover { background: #363a45; }
 </style>

@@ -25,18 +25,19 @@ onMounted(() => {
         type: 'area',
         area: {
           lineColor: '#2962ff',
-          fillColor: [{ offset: 0, color: 'rgba(41, 98, 255, 0.2)' }, { offset: 1, color: 'rgba(41, 98, 255, 0)' }]
+          fillColor: [{ offset: 0, color: 'rgba(41, 98, 255, 0.15)' }, { offset: 1, color: 'rgba(41, 98, 255, 0)' }]
         },
         tooltip: {
           showRule: 'follow_cross',
           showType: 'rect',
           text: {
-            size: 12,
-            color: '#2962ff'
+            size: 11,
+            color: '#2962ff',
+            family: 'JetBrains Mono'
           },
           custom: (data) => {
             return [
-              { title: '余额', value: `$${data.current.close.toFixed(2)}` }
+              { title: 'EQUITY', value: `$${data.current.close.toFixed(2)}` }
             ];
           }
         }
@@ -48,7 +49,12 @@ onMounted(() => {
       crosshair: {
         show: true,
         horizontal: { show: false },
-        vertical: { line: { color: '#555', style: 'dashed' } }
+        vertical: { 
+          line: { 
+            color: 'rgba(255, 255, 255, 0.1)', 
+            style: 'dashed' 
+          } 
+        }
       }
     });
     updateChart();
@@ -79,7 +85,7 @@ onUnmounted(() => {
 
 <template>
   <div class="equity-container">
-    <div class="title">收益曲线</div>
+    <div class="title">账户权益曲线</div>
     <div ref="chartContainer" class="chart"></div>
   </div>
 </template>

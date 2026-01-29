@@ -4,7 +4,11 @@ import ReplayChart from './components/ReplayChart.vue';
 import OrderPanel from './components/OrderPanel.vue';
 import HistoryTable from './components/HistoryTable.vue';
 import EquityChart from './components/EquityChart.vue';
-import { Play, SkipForward, RotateCcw, Dice5, Pause, Pencil, Minus, Square, Ratio, TrendingUp as TrendingUpIcon, Trash2 } from 'lucide-vue-next';
+import { Play, SkipForward, RotateCcw, Dice5, Pause, Pencil, Minus, Square, Ratio, TrendingUp as TrendingUpIcon, Trash2, HelpCircle, Activity } from 'lucide-vue-next';
+
+const chartRef = ref(null);
+const orderPanelRef = ref(null);
+let playIntervalId = null;
 
 // 状态管理
 const state = reactive({
@@ -23,7 +27,20 @@ const state = reactive({
   history: [],
 });
 
-const totalPnl = computed(() => state.balance - state.initialBalance);
+const totalPnl = computed(() => currentEquity.value - state.initialBalance);
+
+// 计算当前总权益（可用余额 + 持仓价值 + 浮动盈亏）
+const currentEquity = computed(() => {
+  let equity = state.balance;
+  if (orderPanelRef.value?.currentPosition) {
+    const pos = orderPanelRef.value.currentPosition;
+    const diff = state.currentPrice - pos.entryPrice;
+    const rawPnl = pos.type === 'long' ? diff : -diff;
+    const floatingPnl = (rawPnl / pos.entryPrice) * pos.amount * pos.leverage;
+    equity += (pos.amount + floatingPnl);
+  }
+  return equity;
+});
 
 // 计算涨幅和波幅
 const marketInfo = computed(() => {
@@ -40,32 +57,32 @@ const marketInfo = computed(() => {
   };
 });
 
-// 监听余额变化记录历史
-watch(() => state.balance, (newVal) => {
-  state.balanceHistory.push({
-    time: Date.now(),
-    balance: newVal
-  });
-  if (state.balanceHistory.length > 50) state.balanceHistory.shift();
+// 监听总权益变化记录历史
+watch(currentEquity, (newVal) => {
+  // 只在价格变动或平仓时记录，避免重复记录相同权益
+  const lastRecord = state.balanceHistory[state.balanceHistory.length - 1];
+  if (!lastRecord || lastRecord.balance !== newVal) {
+    state.balanceHistory.push({
+      time: state.currentTime || Date.now(),
+      balance: newVal
+    });
+    if (state.balanceHistory.length > 200) state.balanceHistory.shift();
+  }
 });
-
-const chartRef = ref(null);
-const orderPanelRef = ref(null);
-let playIntervalId = null;
 
 // 监听开仓状态，绘制入场线
 watch(() => orderPanelRef.value?.currentPosition, (newPos) => {
   if (newPos) {
     chartRef.value?.createOverlay({
-      name: 'horizontalRayLine',
+      name: 'rayLine',
       id: 'entry-line',
       points: [
         { value: newPos.entryPrice, timestamp: newPos.timestamp },
-        { value: newPos.entryPrice, timestamp: newPos.timestamp + 1000000000 } // 强制向右延伸
+        { value: newPos.entryPrice, timestamp: newPos.timestamp + 3600000 } // 往后推一小时，确保方向向右
       ],
       styles: {
         line: {
-          color: newPos.type === 'long' ? '#26a69a' : '#ef5350',
+          color: newPos.type === 'long' ? '#089981' : '#f23645',
           size: 2,
           style: 'dashed'
         }
@@ -221,12 +238,11 @@ function stopPlay() {
 
 function reset() {
   stopPlay();
-  state.allData = [];
-  state.currentIndex = 0;
   state.orders = [];
   state.history = [];
   state.balance = 10000;
-  chartRef.value?.clear();
+  state.balanceHistory = [{ time: state.currentTime || Date.now(), balance: 10000 }];
+  chartRef.value?.removeOverlay(); // 清除所有画线
 }
 
 onMounted(() => {
@@ -237,45 +253,55 @@ onMounted(() => {
 <template>
   <div class="app-container">
     <header class="navbar">
-      <div class="logo">CryptoReplay Pro</div>
-      <div class="market-status" v-if="state.currentIndex > 0">
-        <span class="symbol">{{ state.symbol }}</span>
-        <span class="price">{{ state.currentPrice.toFixed(2) }}</span>
-        <span :class="['change', marketInfo.change >= 0 ? 'plus' : 'minus']">
-          {{ marketInfo.change >= 0 ? '+' : '' }}{{ marketInfo.change.toFixed(2) }}%
-        </span>
-        <span class="amplitude">波幅: {{ marketInfo.amplitude.toFixed(2) }}%</span>
+      <div class="nav-left">
+        <div class="market-status" v-if="state.currentIndex > 0">
+          <Activity size="18" class="icon-activity" />
+          <span class="symbol">{{ state.symbol }}</span>
+          <span class="price">{{ state.currentPrice.toFixed(2) }}</span>
+          <span :class="['change', marketInfo.change >= 0 ? 'plus' : 'minus']">
+            {{ marketInfo.change >= 0 ? '+' : '' }}{{ marketInfo.change.toFixed(2) }}%
+          </span>
+          <span class="amplitude">波幅: {{ marketInfo.amplitude.toFixed(2) }}%</span>
+        </div>
       </div>
+
       <div class="controls">
-        <input v-model="state.symbol" placeholder="BTCUSDT" class="input-symbol" @keyup.enter="loadRandom">
-        <select v-model="state.interval" @change="handleIntervalChange" class="select-interval">
-          <option value="1m">1m</option>
-          <option value="5m">5m</option>
-          <option value="15m">15m</option>
-          <option value="1h">1h</option>
-          <option value="4h">4h</option>
-          <option value="1d">1d</option>
-        </select>
-        <button @click="loadRandom" title="随机历史时刻"><Dice5 size="18" /></button>
-        <div class="divider"></div>
-        <button @click="chartRef?.createOverlay('segment')" title="趋势线"><Pencil size="18" /></button>
-        <button @click="chartRef?.createOverlay('horizontalRayLine')" title="水平向右射线"><Minus size="18" /></button>
-        <button @click="chartRef?.createOverlay('rect')" title="矩形"><Square size="18" /></button>
-        <button @click="chartRef?.createOverlay('fibonacciLine')" title="斐波那契回调"><Ratio size="18" /></button>
-        <button @click="chartRef?.removeOverlay()" title="清除所有画线"><Trash2 size="18" /></button>
-        <div class="divider"></div>
-        <button @click="nextK" title="下一根K线"><SkipForward size="18" /></button>
-        <button @click="togglePlay" :class="{ active: state.isPlaying }">
-          <Pause v-if="state.isPlaying" size="18" />
-          <Play v-else size="18" />
-        </button>
-        <button @click="reset" title="重置"><RotateCcw size="18" /></button>
+        <div class="input-group">
+          <input v-model="state.symbol" placeholder="输入币种" class="input-symbol" @keyup.enter="loadRandom">
+          <select v-model="state.interval" @change="handleIntervalChange" class="select-interval">
+            <option value="1m">1分</option>
+            <option value="5m">5分</option>
+            <option value="15m">15分</option>
+            <option value="1h">1小时</option>
+            <option value="4h">4小时</option>
+            <option value="1d">1天</option>
+          </select>
+        </div>
+        
+        <div class="btn-group">
+          <button @click="loadRandom" title="随机历史时刻" class="btn-icon"><Dice5 size="18" /></button>
+          <div class="divider"></div>
+          <button @click="chartRef?.createOverlay('rayLine')" title="趋势射线" class="btn-icon"><Pencil size="18" /></button>
+          <button @click="chartRef?.createOverlay('horizontalRayLine')" title="水平射线" class="btn-icon"><Minus size="18" /></button>
+          <button @click="chartRef?.createOverlay('rect')" title="矩形" class="btn-icon"><Square size="18" /></button>
+          <button @click="chartRef?.createOverlay('fibonacciLine')" title="斐波那契" class="btn-icon"><Ratio size="18" /></button>
+          <button @click="chartRef?.removeOverlay()" title="清除所有画线" class="btn-icon"><Trash2 size="18" /></button>
+          <div class="divider"></div>
+          <button @click="nextK" title="下一根 K 线" class="btn-icon"><SkipForward size="18" /></button>
+          <button @click="togglePlay" :class="['btn-icon', { active: state.isPlaying }]">
+            <Pause v-if="state.isPlaying" size="18" />
+            <Play v-else size="18" />
+          </button>
+          <button @click="reset" title="重置交易" class="btn-icon"><RotateCcw size="18" /></button>
+        </div>
       </div>
+
       <div class="account-info">
-        <span>余额: ${{ state.balance.toFixed(2) }}</span>
-        <span :class="['total-pnl', totalPnl >= 0 ? 'plus' : 'minus']">
-          ({{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(2) }})
-        </span>
+        <div class="equity-label">当前权益</div>
+        <div class="equity-value">${{ currentEquity.toFixed(2) }}</div>
+        <div :class="['total-pnl', totalPnl >= 0 ? 'plus' : 'minus']">
+          {{ totalPnl >= 0 ? '+' : '' }}{{ totalPnl.toFixed(2) }}
+        </div>
       </div>
     </header>
 
@@ -287,110 +313,180 @@ onMounted(() => {
         <OrderPanel 
           ref="orderPanelRef"
           :currentPrice="state.currentPrice" 
+          :currentTime="state.currentTime"
           v-model:balance="state.balance"
           v-model:history="state.history"
           :symbol="state.symbol"
         />
-        <HistoryTable :history="state.history" />
-        <EquityChart :data="state.balanceHistory" />
+        <div class="side-bottom">
+          <HistoryTable :history="state.history" />
+          <EquityChart :data="state.balanceHistory" />
+        </div>
       </aside>
     </main>
   </div>
 </template>
 
 <style scoped>
+:root {
+  --bg-main: #131722;
+  --bg-panel: #1e222d;
+  --border-color: #2a2e39;
+  --text-main: #d1d4dc;
+  --text-muted: #8a8d97;
+  --primary: #2962ff;
+  --up-color: #089981;
+  --down-color: #f23645;
+  --hover-bg: #2a2e39;
+}
+
 .app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   background-color: #131722;
   color: #d1d4dc;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 .navbar {
-  height: 50px;
+  height: 48px;
   background-color: #1e222d;
   display: flex;
   align-items: center;
-  padding: 0 20px;
-  gap: 20px;
+  padding: 0 16px;
+  justify-content: space-between;
   border-bottom: 1px solid #2a2e39;
+  z-index: 100;
 }
 
-.logo {
-  font-weight: bold;
-  font-size: 1.2rem;
-  color: #2962ff;
-  white-space: nowrap;
+.nav-left {
+  display: flex;
+  align-items: center;
 }
 
 .market-status {
   display: flex;
   align-items: center;
-  gap: 15px;
-  font-size: 0.9rem;
-  background: rgba(255, 255, 255, 0.05);
+  gap: 12px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.03);
   padding: 4px 12px;
   border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.market-status .symbol { font-weight: bold; color: #fff; }
-.market-status .price { color: #fff; font-family: monospace; }
-.market-status .change.plus { color: #26a69a; }
-.market-status .change.minus { color: #ef5350; }
-.market-status .amplitude { color: #8a8d97; font-size: 0.8rem; }
+.icon-activity { color: #2962ff; opacity: 0.8; }
+.market-status .symbol { font-weight: 600; color: #fff; }
+.market-status .price { color: #fff; font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+.market-status .change.plus { color: #089981; }
+.market-status .change.minus { color: #f23645; }
+.market-status .amplitude { color: #8a8d97; font-size: 11px; }
 
 .controls {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex: 1;
+  gap: 16px;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.input-group {
+  display: flex;
+  background: #2a2e39;
+  border-radius: 4px;
+  padding: 2px;
+  border: 1px solid #363a45;
 }
 
 .input-symbol {
-  background: #2a2e39;
-  border: 1px solid #363a45;
+  background: transparent;
+  border: none;
   color: white;
   padding: 4px 8px;
-  border-radius: 4px;
-  width: 100px;
+  width: 90px;
+  font-size: 12px;
+  outline: none;
+  text-transform: uppercase;
 }
 
 .select-interval {
-  background: #2a2e39;
-  border: 1px solid #363a45;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 4px;
+  background: #1e222d;
+  border: none;
+  color: #d1d4dc;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 11px;
+  cursor: pointer;
 }
 
-button {
-  background: #2a2e39;
-  border: 1px solid #363a45;
-  color: #d1d4dc;
+.btn-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 2px;
+  border-radius: 6px;
+}
+
+.btn-icon {
+  background: transparent;
+  border: none;
+  color: #8a8d97;
   padding: 6px;
   border-radius: 4px;
   cursor: pointer;
+  transition: all 0.2s;
   display: flex;
   align-items: center;
-  justify-content: center;
 }
 
-button:hover {
-  background: #363a45;
+.btn-icon:hover {
+  background: #2a2e39;
+  color: #fff;
 }
 
-button.active {
+.btn-icon.active {
   background: #2962ff;
   color: white;
 }
 
 .divider {
   width: 1px;
-  height: 20px;
+  height: 16px;
   background: #363a45;
-  margin: 0 5px;
+  margin: 0 4px;
 }
+
+.account-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 120px;
+}
+
+.equity-label {
+  font-size: 9px;
+  color: #8a8d97;
+  letter-spacing: 1px;
+  font-weight: bold;
+}
+
+.equity-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.2;
+}
+
+.total-pnl {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.total-pnl.plus { color: #089981; }
+.total-pnl.minus { color: #f23645; }
 
 .main-content {
   flex: 1;
@@ -401,29 +497,27 @@ button.active {
 .chart-section {
   flex: 1;
   position: relative;
+  background: #131722;
 }
 
 .side-panel {
-  width: 350px;
+  width: 320px;
   border-left: 1px solid #2a2e39;
   display: flex;
   flex-direction: column;
   background-color: #1e222d;
 }
 
-.account-info {
-  font-weight: 500;
-  color: #00c853;
+.side-bottom {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.2;
+  overflow: hidden;
+  border-top: 1px solid #2a2e39;
 }
 
-.total-pnl {
-  font-size: 0.8rem;
+@media (max-width: 1200px) {
+  .side-panel { width: 280px; }
+  .controls { position: static; transform: none; flex: 1; justify-content: center; }
 }
-
-.total-pnl.plus { color: #00c853; }
-.total-pnl.minus { color: #ef5350; }
 </style>
